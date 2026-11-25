@@ -726,6 +726,8 @@ svg.leaflet-image-layer.leaflet-interactive path {
   .geel{background:var(--geel)}
   .groen{background:var(--groen);color:#fff}
   .wit{background:var(--wit)}
+  .viaknop{font:inherit;font-weight:600;font-size:15px;background:none;border:0;padding:10px 2px 0;color:var(--inkt);text-decoration:underline;text-underline-offset:3px;cursor:pointer}
+  #viablok{margin-bottom:10px}
   .stap{margin-top:14px;padding:12px 14px 14px;border:var(--lijn);border-radius:14px;background:var(--papier)}
   .stap .groot{margin-top:10px}
   .stapkop{display:flex;align-items:center;gap:10px;font-size:17px}
@@ -738,6 +740,7 @@ svg.leaflet-image-layer.leaflet-interactive path {
   .speld{width:22px;height:22px;border-radius:50%;border:3px solid var(--inkt);box-sizing:border-box}
   .speld.start{background:var(--papier)}
   .speld.eind{background:var(--koraal)}
+  .speld.via{background:var(--geel);width:18px;height:18px}
 
   .melding{margin-top:14px;padding:12px 14px;border:var(--lijn);border-radius:12px;background:#FDE3DE;display:none}
   #uitkomst{display:none;margin-top:20px}
@@ -772,12 +775,22 @@ svg.leaflet-image-layer.leaflet-interactive path {
 
     <div class="wissel"><button class="knopje" id="wissel" type="button" aria-label="Omdraaien">⇅</button></div>
 
+    <div class="veld" id="viablok" hidden>
+      <label for="via">Via</label>
+      <div class="invoer">
+        <input id="via" type="text" autocomplete="off" placeholder="Plek waar je langs wilt">
+        <button class="knopje" id="viaweg" type="button" aria-label="Via weghalen">✕</button>
+      </div>
+      <div class="lijst" id="lijst-via"></div>
+    </div>
+
     <div class="veld">
       <label for="naar">Naar</label>
       <div class="invoer"><input id="naar" type="text" autocomplete="off" placeholder="Adres of plek"></div>
       <div class="lijst" id="lijst-naar"></div>
     </div>
 
+    <button class="viaknop" id="viatoe" type="button">+ Via toevoegen</button>
     <button class="groot geel" id="plan" type="button">Plan route</button>
     <div class="melding" id="melding"></div>
 
@@ -807,11 +820,12 @@ svg.leaflet-image-layer.leaflet-interactive path {
 </script>
 <script>
 const ROUTE_URL = "https://valhalla1.openstreetmap.de/route";
+const LOCATE_URL = "https://valhalla1.openstreetmap.de/locate";
 const TRACE_URL = "https://valhalla1.openstreetmap.de/trace_attributes";
 const ZOEK_URL  = "https://photon.komoot.io/api/";
 
 const $ = id => document.getElementById(id);
-const plek = { van: null, naar: null };   // {lat, lon, naam} of {hier:true}; lege 'Van' betekent ook mijn locatie
+const plek = { van: null, naar: null, via: null };   // {lat, lon, naam} of {hier:true}; lege 'Van' betekent ook mijn locatie
 let mijnPlek = null;
 
 /* ---------- zoeken ---------- */
@@ -861,7 +875,7 @@ function bewaarRecent(p){
 const HIER = { hier: true, naam: "Mijn locatie" };
 function veldTekst(r){ return r.hier ? "Mijn locatie" : r.naam + (r.onder ? ", " + r.onder.split(", ").pop() : ""); }
 
-function koppelZoeken(soort){
+function koppelZoeken(soort, metHierOptie = true){
   const inp = $(soort), lijst = $("lijst-" + soort);
   let timer, teller = 0;
   lijst.addEventListener("mousedown", e => e.preventDefault());
@@ -895,8 +909,8 @@ function koppelZoeken(soort){
   function overzicht(){
     const t = inp.value.trim();
     const gekozen = plek[soort];
-    if (gekozen && inp.value === veldTekst(gekozen)) { toonLijst(leesRecent(), [], true); return; }
-    if (t.length < 3) toonLijst(passend(t), [], true);
+    if (gekozen && inp.value === veldTekst(gekozen)) { toonLijst(leesRecent(), [], metHierOptie); return; }
+    if (t.length < 3) toonLijst(passend(t), [], metHierOptie);
   }
 
   inp.addEventListener("focus", () => { if (inp.value && plek[soort]) inp.select(); overzicht(); });
@@ -951,9 +965,9 @@ function afstand(a, b){
   return 2 * R * Math.asin(Math.sqrt(h));
 }
 
-async function haalRoute(van, naar){
+async function haalRoute(van, naar, via){
   const vraag = {
-    locations: [{ lat: van.lat, lon: van.lon }, { lat: naar.lat, lon: naar.lon }],
+    locations: [{ lat: van.lat, lon: van.lon }, ...(via ? [{ lat: via.lat, lon: via.lon, type: "via" }] : []), { lat: naar.lat, lon: naar.lon }],
     costing: "motor_scooter",
     costing_options: { motor_scooter: { top_speed: 45, use_primary: 0.5, use_hills: 0.5 } },
     directions_options: { language: "nl-NL", units: "kilometers" }
@@ -968,7 +982,7 @@ async function haalRoute(van, naar){
 async function haalWegen(shape){
   const vraag = {
     encoded_polyline: shape, shape_match: "edge_walk", costing: "motor_scooter",
-    filters: { attributes: ["edge.use", "edge.road_class", "edge.length", "edge.begin_shape_index", "edge.end_shape_index", "shape"], action: "include" }
+    filters: { attributes: ["edge.use", "edge.road_class", "edge.length", "edge.begin_shape_index", "edge.end_shape_index", "edge.way_id", "shape"], action: "include" }
   };
   const r = await fetch(`${TRACE_URL}?json=${encodeURIComponent(JSON.stringify(vraag))}`);
   const j = await r.json().catch(() => ({}));
@@ -1002,7 +1016,7 @@ function wegstukken(wegen, vorm){
     }
     map = i => m[Math.min(i, m.length - 1)];
   }
-  return wegen.edges.map(e => ({ use: e.use, klasse: e.road_class, b: map(e.begin_shape_index), e: map(e.end_shape_index) }));
+  return wegen.edges.map(e => ({ use: e.use, klasse: e.road_class, way: e.way_id, b: map(e.begin_shape_index), e: map(e.end_shape_index) }));
 }
 
 /* Deel de route op in rijstukken en pontstukken. */
@@ -1034,41 +1048,135 @@ function maakDelen(trip, vorm, stukken){
   return delen;
 }
 
-/* Tussenpunten: weinig, en alleen midden op een gewone weg.
-   Nooit op een kruising, bromfietspad, busbaan of steiger: daar maakt Google lussen. */
+/* ---------- tussenpunten voor Google ----------
+   Google neemt in de app maar een paar tussenpunten mee. Dus: max 3,
+   alleen waar Google anders een andere weg kiest, en alleen op een weg waar een auto mag komen. */
+const MAX_TUSSEN = 3;
 const GOEDE_WEG = new Set(["primary", "secondary", "tertiary", "unclassified", "residential", "trunk"]);
-function kiesTussenpunten(trip, vorm, deel, stukken, max = 8){
-  const km = kmLijst(vorm);
-  const lengte = km[deel.e] - km[deel.b];
-  if (lengte < 1.5) return [];
-  const aantal = Math.max(1, Math.min(max, Math.round(lengte / 2.5)));
-  const marge = 0.3;
-  let kandidaten = [];
+
+function kandidaten(trip, km, deel, stukken){
+  const uit = [], marge = 0.3;
   if (stukken){
     for (const s of stukken){
       if (s.use !== "road" || !GOEDE_WEG.has(s.klasse)) continue;
       if (s.b < deel.b || s.e > deel.e || km[s.e] - km[s.b] < 0.12) continue;
       const mid = indexOpKm(km, (km[s.b] + km[s.e]) / 2, s.b, s.e);
-      if (mid > s.b && mid < s.e) kandidaten.push(mid);
+      if (mid > s.b && mid < s.e) uit.push({ i: mid, way: s.way });
     }
   } else {
     for (const m of trip.legs.flatMap(l => l.maneuvers || [])){
       if (m.ferry || m.type === 28) continue;
       const b = m.begin_shape_index, e = m.end_shape_index;
       if (b < deel.b || e > deel.e || km[e] - km[b] < 0.3) continue;
-      kandidaten.push(indexOpKm(km, (km[b] + km[e]) / 2, b, e));
+      uit.push({ i: indexOpKm(km, (km[b] + km[e]) / 2, b, e) });
     }
   }
-  kandidaten = kandidaten.filter(i => km[i] - km[deel.b] > marge && km[deel.e] - km[i] > marge);
-  const gekozen = [];
-  for (let i = 1; i <= aantal; i++){
-    const doel = km[deel.b] + lengte * i / (aantal + 1);
-    let beste = null;
-    for (const k of kandidaten) if (beste === null || Math.abs(km[k] - doel) < Math.abs(km[beste] - doel)) beste = k;
-    if (beste === null) break;
-    if (gekozen.every(g => Math.abs(km[g] - km[beste]) > 0.8)) gekozen.push(beste);
+  return uit.filter(k => km[k.i] - km[deel.b] > marge && km[deel.e] - km[k.i] > marge);
+}
+
+/* De route die een auto zou nemen (zonder snelweg): zo zien we waar Google afwijkt. */
+async function autoRoute(a, b){
+  const vraag = {
+    locations: [{ lat: a[0], lon: a[1] }, { lat: b[0], lon: b[1] }],
+    costing: "auto",
+    costing_options: { auto: { use_highways: 0, use_tolls: 0, use_ferry: 0 } },
+    directions_options: { units: "kilometers" }, narrative: false
+  };
+  const r = await fetch(`${ROUTE_URL}?json=${encodeURIComponent(JSON.stringify(vraag))}`);
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok || !j.trip) throw new Error("auto");
+  return j.trip.legs.flatMap(l => decodeer(l.shape));
+}
+
+/* Stukken van de scooterroute die meer dan 40 m van de autoroute af liggen. */
+function afwijkingen(vorm, km, deel, auto){
+  const lat0 = vorm[deel.b][0] * Math.PI / 180, kx = 111.32 * Math.cos(lat0), ky = 110.57;
+  const P = p => [p[1] * kx, p[0] * ky];
+  const A = auto.map(P);
+  const afst = q => {
+    let best = Infinity;
+    for (let j = 1; j < A.length; j++){
+      const [x1, y1] = A[j-1], [x2, y2] = A[j];
+      const dx = x2 - x1, dy = y2 - y1, l2 = dx*dx + dy*dy;
+      let t = l2 ? ((q[0]-x1)*dx + (q[1]-y1)*dy) / l2 : 0;
+      t = Math.max(0, Math.min(1, t));
+      const ex = x1 + t*dx - q[0], ey = y1 + t*dy - q[1], d = ex*ex + ey*ey;
+      if (d < best) best = d;
+    }
+    return Math.sqrt(best);
+  };
+  const secties = []; let open = null;
+  for (let i = deel.b; i <= deel.e; i++){
+    const weg = afst(P(vorm[i])) > 0.04;
+    if (weg && !open) open = { b: i, e: i };
+    else if (weg) open.e = i;
+    else if (open){ secties.push(open); open = null; }
   }
-  return gekozen.sort((a, b) => a - b).map(i => vorm[i]);
+  if (open) secties.push(open);
+  const samen = [];
+  for (const s of secties){
+    const v = samen[samen.length - 1];
+    if (v && km[s.b] - km[v.e] < 0.15) v.e = s.e; else samen.push({ ...s });
+  }
+  return samen.map(s => ({ ...s, len: km[s.e] - km[s.b], mid: (km[s.b] + km[s.e]) / 2 })).filter(s => s.len >= 0.2);
+}
+
+/* Kan een auto op dit punt komen, op dezelfde weg? */
+async function autoBereikbaar(lijst, vorm){
+  const ok = new Set(lijst.map(k => k.i));
+  if (!lijst.length) return ok;
+  try{
+    const vraag = { locations: lijst.slice(0, 20).map(k => ({ lat: vorm[k.i][0], lon: vorm[k.i][1] })), costing: "auto", verbose: false };
+    const r = await fetch(`${LOCATE_URL}?json=${encodeURIComponent(JSON.stringify(vraag))}`);
+    const j = await r.json();
+    if (!r.ok || !Array.isArray(j)) return ok;
+    lijst.slice(0, 20).forEach((k, n) => {
+      const randen = (j[n] && j[n].edges) || [];
+      const pt = vorm[k.i];
+      const goed = randen.some(e => k.way ? e.way_id === k.way
+        : afstand(pt, [e.correlated_lat, e.correlated_lon]) < 0.015);
+      if (!goed) ok.delete(k.i);
+    });
+    lijst.slice(20).forEach(k => ok.delete(k.i));
+  }catch(e){}
+  return ok;
+}
+
+async function kiesTussenpunten(trip, vorm, deel, stukken, vast = []){
+  const km = kmLijst(vorm);
+  const max = MAX_TUSSEN - vast.length;
+  const lengte = km[deel.e] - km[deel.b];
+  const klaar = gekozen => [...vast, ...gekozen].sort((a, b) => a - b).map(i => vorm[i]);
+  if (lengte < 1 || max <= 0) return klaar([]);
+  const kand = kandidaten(trip, km, deel, stukken)
+    .filter(k => vast.every(v => Math.abs(km[v] - km[k.i]) > 0.5));
+  let auto = null;
+  try { auto = await autoRoute(vorm[deel.b], vorm[deel.e]); } catch(e){}
+
+  let groepen;
+  if (auto){
+    // per afwijking: de punten zo dicht mogelijk bij het midden, grootste afwijking eerst
+    groepen = afwijkingen(vorm, km, deel, auto).sort((a, b) => b.len - a.len)
+      .map(s => kand.filter(k => k.i >= s.b && k.i <= s.e)
+        .sort((x, y) => Math.abs(km[x.i] - s.mid) - Math.abs(km[y.i] - s.mid)).slice(0, 5))
+      .filter(g => g.length);
+  } else {
+    // geen autoroute: verspreid over de route
+    const n = Math.max(1, Math.min(max, Math.round(lengte / 4)));
+    groepen = [];
+    for (let i = 1; i <= n; i++){
+      const doel = km[deel.b] + lengte * i / (n + 1);
+      groepen.push([...kand].sort((x, y) => Math.abs(km[x.i] - doel) - Math.abs(km[y.i] - doel)).slice(0, 4));
+    }
+  }
+  const ok = await autoBereikbaar(groepen.flat().filter((k, i, a) => a.findIndex(x => x.i === k.i) === i), vorm);
+  const gekozen = [];
+  for (const g of groepen){
+    if (gekozen.length >= max) break;
+    const k = g.find(x => ok.has(x.i) && gekozen.every(c => Math.abs(km[c] - km[x.i]) > 0.5));
+    if (k) gekozen.push(k.i);
+  }
+  return klaar(gekozen);
 }
 
 function googleLink(van, naar, tussen, vanIsHier){
@@ -1106,6 +1214,7 @@ function tekenKaart(){
         L.polyline(lijn.slice(d.b, d.e + 1), { color: "#FFFFFF", weight: 6, opacity: 1 }),
         L.polyline(lijn.slice(d.b, d.e + 1), { color: "#1F4AA8", weight: 5, opacity: 1, dashArray: "1 9", lineCap: "round" })])),
     L.marker(lijn[0], { icon: speld("start"), title: "Start" }),
+    ...(laatste.via ? [L.marker([laatste.via.lat, laatste.via.lon], { icon: speld("via"), title: "Via" })] : []),
     L.marker(lijn[lijn.length - 1], { icon: speld("eind"), title: "Bestemming" })
   ]).addTo(kaart);
   kaart.invalidateSize();
@@ -1133,8 +1242,7 @@ function toonDelen(delen, trip, vorm, stukken, vanIsHier){
     }
     nr++;
     const eerste = i === 0, laatste = i === delen.length - 1;
-    const tussen = kiesTussenpunten(trip, vorm, d, stukken);
-    const link = googleLink(vorm[d.b], vorm[d.e], tussen, eerste && vanIsHier);
+    const link = googleLink(vorm[d.b], vorm[d.e], d.tussen || [], eerste && vanIsHier);
     const a = document.createElement("a");
     a.className = "groot groen"; a.target = "_blank"; a.rel = "noopener"; a.href = link;
     a.textContent = "Open in Google Maps";
@@ -1152,6 +1260,7 @@ async function plan(){
   toon(""); verbergUitkomst();
   const knop = $("plan");
   if (!plek.naar){ toon($("naar").value.trim() ? "Kies een plek uit de lijst onder ‘Naar’." : "Vul in waar je heen wilt."); return; }
+  if (!plek.via && $("via").value.trim()){ toon("Kies een plek uit de lijst onder ‘Via’, of haal het veld weg."); return; }
   if (!plek.van && $("van").value.trim()){ toon("Kies een plek uit de lijst onder ‘Van’, of kies ‘Mijn locatie’."); return; }
   const vanKeuze = plek.van || HIER, naarKeuze = plek.naar;
   if (vanKeuze.hier && naarKeuze.hier){ toon("Van en Naar zijn nu allebei je eigen locatie. Kies bij één van de twee een andere plek."); return; }
@@ -1165,8 +1274,9 @@ async function plan(){
       catch(e){ toon("Je locatie lukt niet. Zet locatie aan voor deze site, of kies zelf een plek."); return; }
       if (van.hier) van = hier; else naar = hier;
     }
+    const via = plek.via && !plek.via.hier ? plek.via : null;
     let trip;
-    try { trip = await haalRoute(van, naar); }
+    try { trip = await haalRoute(van, naar, via); }
     catch(e){
       toon(e.code === 442 || e.code === 171 || e.code === 170
         ? "Geen scooterroute gevonden. Kies een plek dichter bij een gewone weg."
@@ -1177,10 +1287,16 @@ async function plan(){
     let stukken = null;
     try { if (trip.legs.length === 1) stukken = wegstukken(await haalWegen(trip.legs[0].shape), vorm); } catch(e){ stukken = null; }
     const delen = maakDelen(trip, vorm, stukken);
+    let viaI = null;
+    if (via){ let best = Infinity; vorm.forEach((p, i) => { const d = afstand(p, [via.lat, via.lon]); if (d < best){ best = d; viaI = i; } }); }
+    await Promise.all(delen.filter(d => d.soort === "rij").map(async d => {
+      const vast = viaI !== null && viaI > d.b && viaI < d.e ? [viaI] : [];
+      d.tussen = await kiesTussenpunten(trip, vorm, d, stukken, vast);
+    }));
     $("km").textContent = trip.summary.length.toFixed(1).replace(".", ",");
     $("tijd").textContent = tijdTekst(trip.summary.time);
     toonDelen(delen, trip, vorm, stukken, vanIsHier);
-    laatste = { vorm, delen, van, naar };
+    laatste = { vorm, delen, van, naar, via };
     $("uitkomst").style.display = "block";
     if (kaartOpen) tekenKaart();
   } finally {
@@ -1190,6 +1306,9 @@ async function plan(){
 
 koppelZoeken("van");
 koppelZoeken("naar");
+koppelZoeken("via", false);
+$("viatoe").onclick = () => { $("viablok").hidden = false; $("viatoe").hidden = true; $("via").focus(); };
+$("viaweg").onclick = () => { plek.via = null; $("via").value = ""; $("viablok").hidden = true; $("viatoe").hidden = false; verbergUitkomst(); };
 $("plan").onclick = plan;
 $("kaartknop").onclick = wisselKaart;
 $("hier").onclick = () => { $("van").value = "Mijn locatie"; plek.van = HIER; verbergUitkomst(); };
@@ -1202,7 +1321,7 @@ $("wissel").onclick = () => {
 };
 haalLocatie().catch(() => {});
 
-if (typeof module !== "undefined") module.exports = { leesRecent, bewaarRecent, decodeer, kiesTussenpunten, googleLink, omschrijf, haalRoute, zoek, maakDelen, wegstukken };
+if (typeof module !== "undefined") module.exports = { afwijkingen, autoBereikbaar, leesRecent, bewaarRecent, decodeer, kiesTussenpunten, googleLink, omschrijf, haalRoute, zoek, maakDelen, wegstukken };
 </script>
 </body>
 </html>
