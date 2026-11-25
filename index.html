@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="nl">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<title>Scooterroute</title>
+<meta name="theme-color" content="#F5C400">
+<link rel="manifest" href="manifest.webmanifest">
+<link rel="icon" href="icon.svg" type="image/svg+xml">
+<link rel="apple-touch-icon" href="icon-180.png">
+<meta name="apple-mobile-web-app-capable" content="yes">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-title" content="Scooterroute">
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Bricolage+Grotesque:opsz,wght@12..96,400;12..96,600;12..96,800&display=swap" rel="stylesheet">
+<style>
+  :root{
+    --geel:#F5C400; --inkt:#1B1A17; --papier:#FBF6EA; --wit:#fff;
+    --groen:#2E8B6A; --koraal:#E2553F; --grijs:#6E6A60; --lijn:1.5px solid var(--inkt);
+  }
+  *{box-sizing:border-box}
+  html,body{margin:0;background:var(--papier);color:var(--inkt);
+    font-family:"Bricolage Grotesque",system-ui,-apple-system,Segoe UI,Roboto,sans-serif;
+    -webkit-tap-highlight-color:transparent}
+  main{max-width:520px;margin:0 auto;padding:calc(18px + env(safe-area-inset-top)) 18px calc(28px + env(safe-area-inset-bottom))}
+
+  /* kop als geel kenteken */
+  .plaat{display:flex;align-items:stretch;border:var(--lijn);border-radius:10px;overflow:hidden;
+    background:var(--geel);box-shadow:3px 3px 0 var(--inkt);margin-bottom:22px}
+  .plaat .nl{background:#1F4AA8;color:#fff;font-weight:800;font-size:13px;display:flex;flex-direction:column;
+    justify-content:flex-end;align-items:center;padding:8px 9px;border-right:var(--lijn);letter-spacing:.5px}
+  .plaat .nl span{font-size:9px;letter-spacing:1px;margin-bottom:2px;color:#F5C400}
+  .plaat h1{margin:0;padding:12px 14px;font-size:28px;font-weight:800;letter-spacing:1.5px;text-transform:uppercase;flex:1;text-align:center}
+
+  .kaartje{background:var(--wit);border:var(--lijn);border-radius:16px;padding:16px;box-shadow:3px 3px 0 var(--inkt)}
+  label{display:block;font-weight:600;font-size:15px;margin:0 0 6px}
+  .veld{position:relative;margin-bottom:6px}
+  .invoer{display:flex;gap:8px}
+  input[type=text]{flex:1;min-width:0;font:inherit;font-size:17px;padding:13px 14px;border:var(--lijn);border-radius:12px;background:var(--papier);color:var(--inkt)}
+  input[type=text]:focus{outline:3px solid var(--geel);outline-offset:1px}
+  .knopje{font:inherit;font-weight:600;border:var(--lijn);border-radius:12px;background:var(--wit);padding:0 12px;min-height:50px;cursor:pointer;color:var(--inkt)}
+  .knopje:active{transform:translate(1px,1px)}
+  .wissel{display:flex;justify-content:center;margin:6px 0 4px}
+  .wissel button{width:46px;height:46px;border-radius:50%;padding:0;font-size:20px}
+  .lijst{position:absolute;z-index:5;left:0;right:0;top:calc(100% + 4px);background:var(--wit);border:var(--lijn);border-radius:12px;
+    overflow:hidden;box-shadow:3px 3px 0 var(--inkt);display:none}
+  .lijst button{display:block;width:100%;text-align:left;font:inherit;background:none;border:0;border-bottom:1px solid #e6e0d0;padding:12px 14px;cursor:pointer;color:var(--inkt)}
+  .lijst button:last-child{border-bottom:0}
+  .lijst small{display:block;color:var(--grijs);font-size:13px}
+  .lijst button:active,.lijst button:hover{background:#FFF4C2}
+
+  .groot{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;font:inherit;font-size:19px;font-weight:800;
+    border:var(--lijn);border-radius:14px;padding:16px;margin-top:14px;cursor:pointer;box-shadow:3px 3px 0 var(--inkt);color:var(--inkt)}
+  a.groot{text-decoration:none}
+  .groot:active{transform:translate(2px,2px);box-shadow:1px 1px 0 var(--inkt)}
+  .groot:disabled{opacity:.55;cursor:default}
+  .geel{background:var(--geel)}
+  .groen{background:var(--groen);color:#fff}
+
+  .melding{margin-top:14px;padding:12px 14px;border:var(--lijn);border-radius:12px;background:#FDE3DE;display:none}
+  #uitkomst{display:none;margin-top:20px}
+  .cijfers{display:flex;gap:10px}
+  .cijfer{flex:1;border:var(--lijn);border-radius:12px;padding:10px 12px;background:var(--papier)}
+  .cijfer b{display:block;font-size:26px;font-weight:800}
+  .cijfer span{color:var(--grijs);font-size:14px}
+  .tip{font-size:14.5px;line-height:1.45;margin:14px 0 0;padding:12px 14px;border-left:5px solid var(--geel);background:var(--papier);border-radius:0 10px 10px 0}
+  .tip b{font-weight:700}
+  footer{margin-top:22px;font-size:13px;color:var(--grijs);text-align:center;line-height:1.5}
+  footer a{color:var(--grijs)}
+  .draai{display:inline-block;width:18px;height:18px;border:2.5px solid currentColor;border-right-color:transparent;border-radius:50%;animation:d .8s linear infinite}
+  @keyframes d{to{transform:rotate(360deg)}}
+</style>
+</head>
+<body>
+<main>
+  <div class="plaat" aria-hidden="false">
+    <div class="nl"><span>★</span>NL</div>
+    <h1>Scooterroute</h1>
+  </div>
+
+  <div class="kaartje">
+    <div class="veld">
+      <label for="van">Van</label>
+      <div class="invoer">
+        <input id="van" type="text" autocomplete="off" placeholder="Mijn locatie" value="">
+        <button class="knopje" id="hier" type="button" title="Mijn locatie">📍</button>
+      </div>
+      <div class="lijst" id="lijst-van"></div>
+    </div>
+
+    <div class="wissel"><button class="knopje" id="wissel" type="button" aria-label="Omdraaien">⇅</button></div>
+
+    <div class="veld">
+      <label for="naar">Naar</label>
+      <div class="invoer"><input id="naar" type="text" autocomplete="off" placeholder="Adres of plek"></div>
+      <div class="lijst" id="lijst-naar"></div>
+    </div>
+
+    <button class="groot geel" id="plan" type="button">Plan route</button>
+    <div class="melding" id="melding"></div>
+
+    <div id="uitkomst">
+      <div class="cijfers">
+        <div class="cijfer"><b id="km">–</b><span>kilometer</span></div>
+        <div class="cijfer"><b id="tijd">–</b><span>rijtijd</span></div>
+      </div>
+      <a class="groot groen" id="open" href="#" target="_blank" rel="noopener">Open in Google Maps</a>
+      <p class="tip"><b>Eén keer instellen in Google Maps:</b> tik op ⋯ → Route-opties → zet <b>Snelwegen vermijden</b> aan.</p>
+      <p class="tip"><b>Fiets/bromfietspad naast de weg?</b> Google kent geen scooters en tekent dan de weg ernaast. Rij gewoon over het pad, dat hoort zo.</p>
+    </div>
+  </div>
+
+  <footer>Geen snelweg, geen autoweg, geen gewoon fietspad.<br>
+    Route: <a href="https://valhalla.github.io/valhalla/" target="_blank" rel="noopener">Valhalla</a> · kaartdata © <a href="https://www.openstreetmap.org/copyright" target="_blank" rel="noopener">OpenStreetMap</a></footer>
+</main>
+
+<script>
+const ROUTE_URL = "https://valhalla1.openstreetmap.de/route";
+const ZOEK_URL  = "https://photon.komoot.io/api/";
+
+const $ = id => document.getElementById(id);
+const plek = { van: null, naar: null };   // {lat, lon, naam} ; van=null betekent mijn locatie
+let mijnPlek = null;
+
+/* ---------- zoeken ---------- */
+function omschrijf(p){
+  const straat = [p.street, p.housenumber].filter(Boolean).join(" ");
+  const titel = p.name || straat || p.city || "Onbekende plek";
+  const rest = [p.name && straat ? straat : "", p.postcode, p.city || p.town || p.village, p.countrycode && p.countrycode !== "NL" ? p.country : ""]
+    .filter(x => x && x !== titel);
+  return { titel, onder: [...new Set(rest)].join(", ") };
+}
+
+async function zoek(tekst){
+  const bias = mijnPlek || { lat: 52.1, lon: 5.2 };
+  const url = `${ZOEK_URL}?q=${encodeURIComponent(tekst)}&limit=5&lat=${bias.lat}&lon=${bias.lon}&bbox=3.2,50.7,7.3,53.6`;
+  const r = await fetch(url);
+  if (!r.ok) throw new Error("zoek");
+  const j = await r.json();
+  return (j.features || []).map(f => {
+    const o = omschrijf(f.properties || {});
+    return { lat: f.geometry.coordinates[1], lon: f.geometry.coordinates[0], naam: o.titel, onder: o.onder };
+  });
+}
+
+function koppelZoeken(soort){
+  const inp = $(soort), lijst = $("lijst-" + soort);
+  let timer, teller = 0;
+  inp.addEventListener("input", () => {
+    plek[soort] = null;
+    verbergUitkomst();
+    clearTimeout(timer);
+    const t = inp.value.trim();
+    if (t.length < 3){ lijst.style.display = "none"; return; }
+    timer = setTimeout(async () => {
+      const mijn = ++teller;
+      try{
+        const res = await zoek(t);
+        if (mijn !== teller) return;
+        lijst.innerHTML = "";
+        if (!res.length){ lijst.innerHTML = '<button type="button" disabled>Niks gevonden</button>'; }
+        res.forEach(r => {
+          const b = document.createElement("button");
+          b.type = "button";
+          b.innerHTML = `${esc(r.naam)}${r.onder ? `<small>${esc(r.onder)}</small>` : ""}`;
+          b.onclick = () => { plek[soort] = r; inp.value = r.naam + (r.onder ? ", " + r.onder.split(", ").pop() : ""); lijst.style.display = "none"; };
+          lijst.appendChild(b);
+        });
+        lijst.style.display = "block";
+      }catch(e){ lijst.style.display = "none"; }
+    }, 300);
+  });
+  inp.addEventListener("blur", () => setTimeout(() => lijst.style.display = "none", 200));
+}
+function esc(s){ return String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
+
+/* ---------- locatie ---------- */
+function haalLocatie(){
+  return new Promise((ok, nee) => {
+    if (!navigator.geolocation) return nee(new Error("geen"));
+    navigator.geolocation.getCurrentPosition(
+      p => { mijnPlek = { lat: p.coords.latitude, lon: p.coords.longitude }; ok(mijnPlek); },
+      e => nee(e), { enableHighAccuracy: true, timeout: 12000, maximumAge: 60000 });
+  });
+}
+
+/* ---------- route ---------- */
+function decodeer(str, prec = 6){
+  let i = 0, lat = 0, lon = 0; const f = Math.pow(10, prec), uit = [];
+  while (i < str.length){
+    for (const k of [0, 1]){
+      let b, shift = 0, res = 0;
+      do { b = str.charCodeAt(i++) - 63; res |= (b & 0x1f) << shift; shift += 5; } while (b >= 0x20);
+      const d = (res & 1) ? ~(res >> 1) : (res >> 1);
+      if (k === 0) lat += d; else lon += d;
+    }
+    uit.push([lat / f, lon / f]);
+  }
+  return uit;
+}
+function afstand(a, b){
+  const R = 6371, r = Math.PI / 180;
+  const dLa = (b[0]-a[0])*r, dLo = (b[1]-a[1])*r;
+  const h = Math.sin(dLa/2)**2 + Math.cos(a[0]*r)*Math.cos(b[0]*r)*Math.sin(dLo/2)**2;
+  return 2 * R * Math.asin(Math.sqrt(h));
+}
+
+async function haalRoute(van, naar){
+  const vraag = {
+    locations: [{ lat: van.lat, lon: van.lon }, { lat: naar.lat, lon: naar.lon }],
+    costing: "motor_scooter",
+    costing_options: { motor_scooter: { top_speed: 45, use_primary: 0.5, use_hills: 0.5 } },
+    directions_options: { language: "nl-NL", units: "kilometers" }
+  };
+  const r = await fetch(`${ROUTE_URL}?json=${encodeURIComponent(JSON.stringify(vraag))}`);
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok || !j.trip) { const e = new Error("route"); e.code = j.error_code; throw e; }
+  return j.trip;
+}
+
+/* Kies tussenpunten op afslagen, verspreid over de route, zodat Google dezelfde weg volgt. */
+function kiesTussenpunten(trip, max = 8){
+  const vorm = trip.legs.flatMap(l => decodeer(l.shape));
+  const km = [0];
+  for (let i = 1; i < vorm.length; i++) km.push(km[i-1] + afstand(vorm[i-1], vorm[i]));
+  const totaal = km[km.length - 1];
+  if (totaal < 1) return [];
+  const aantal = Math.min(max, Math.max(2, Math.ceil(totaal / 2)));
+  let kandidaten = [];
+  let offset = 0;
+  trip.legs.forEach(l => {
+    const n = decodeer(l.shape).length;
+    l.maneuvers.forEach(m => { if (m.begin_shape_index > 0 && m.begin_shape_index < n - 1) kandidaten.push(offset + m.begin_shape_index); });
+    offset += n;
+  });
+  if (kandidaten.length < aantal) kandidaten = vorm.map((_, i) => i).slice(1, -1);
+  const gekozen = new Set();
+  for (let i = 1; i <= aantal; i++){
+    const doel = totaal * i / (aantal + 1);
+    let beste = null, verschil = Infinity;
+    for (const k of kandidaten){
+      const v = Math.abs(km[k] - doel);
+      if (v < verschil){ verschil = v; beste = k; }
+    }
+    if (beste !== null && km[beste] > 0.15 && totaal - km[beste] > 0.15) gekozen.add(beste);
+  }
+  return [...gekozen].sort((a, b) => a - b).map(i => vorm[i]);
+}
+
+function googleLink(van, naar, tussen, vanIsHier){
+  const p = x => `${(+x[0]).toFixed(6)},${(+x[1]).toFixed(6)}`;
+  const q = new URLSearchParams({ api: "1", destination: p([naar.lat, naar.lon]), travelmode: "driving" });
+  if (!vanIsHier) q.set("origin", p([van.lat, van.lon]));
+  if (tussen.length) q.set("waypoints", tussen.map(p).join("|"));
+  else q.set("dir_action", "navigate");
+  return "https://www.google.com/maps/dir/?" + q.toString();
+}
+
+/* ---------- scherm ---------- */
+function toon(tekst){ const m = $("melding"); m.textContent = tekst; m.style.display = tekst ? "block" : "none"; }
+function verbergUitkomst(){ $("uitkomst").style.display = "none"; }
+function tijdTekst(s){ const m = Math.round(s / 60); return m < 60 ? `${m} min` : `${Math.floor(m/60)} u ${m % 60}`; }
+
+async function plan(){
+  toon(""); verbergUitkomst();
+  const knop = $("plan");
+  if (!plek.naar){ toon($("naar").value.trim() ? "Kies een plek uit de lijst onder ‘Naar’." : "Vul in waar je heen wilt."); return; }
+  if (!plek.van && $("van").value.trim()){ toon("Kies een plek uit de lijst onder ‘Van’, of maak het veld leeg voor je eigen locatie."); return; }
+  knop.disabled = true; knop.innerHTML = '<span class="draai"></span> Even rekenen…';
+  try{
+    let van = plek.van, vanIsHier = false;
+    if (!van){
+      try { van = await haalLocatie(); vanIsHier = true; }
+      catch(e){ toon("Je locatie lukt niet. Zet locatie aan voor deze site, of vul ‘Van’ zelf in."); return; }
+    }
+    let trip;
+    try { trip = await haalRoute(van, plek.naar); }
+    catch(e){
+      toon(e.code === 442 || e.code === 171 || e.code === 170
+        ? "Geen scooterroute gevonden. Kies een plek dichter bij een gewone weg."
+        : "De route lukt nu niet. Check je internet en probeer het zo nog eens.");
+      return;
+    }
+    const tussen = kiesTussenpunten(trip);
+    $("km").textContent = trip.summary.length.toFixed(1).replace(".", ",");
+    $("tijd").textContent = tijdTekst(trip.summary.time);
+    $("open").href = googleLink(van, plek.naar, tussen, vanIsHier);
+    $("uitkomst").style.display = "block";
+  } finally {
+    knop.disabled = false; knop.textContent = "Plan route";
+  }
+}
+
+koppelZoeken("van");
+koppelZoeken("naar");
+$("plan").onclick = plan;
+$("hier").onclick = () => { $("van").value = ""; plek.van = null; verbergUitkomst(); $("van").placeholder = "Mijn locatie"; };
+$("wissel").onclick = () => {
+  if (!plek.van && !plek.naar) return;
+  [plek.van, plek.naar] = [plek.naar, plek.van];
+  const a = $("van").value; $("van").value = $("naar").value; $("naar").value = a;
+  verbergUitkomst();
+};
+haalLocatie().catch(() => {});
+
+if (typeof module !== "undefined") module.exports = { decodeer, kiesTussenpunten, googleLink, omschrijf, haalRoute, zoek };
+</script>
+</body>
+</html>
