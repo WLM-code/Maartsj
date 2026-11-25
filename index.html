@@ -711,6 +711,11 @@ svg.leaflet-image-layer.leaflet-interactive path {
   .lijst button{display:block;width:100%;text-align:left;font:inherit;background:none;border:0;border-bottom:1px solid #e6e0d0;padding:12px 14px;cursor:pointer;color:var(--inkt)}
   .lijst button:last-child{border-bottom:0}
   .lijst small{display:block;color:var(--grijs);font-size:13px}
+  .lijst button{display:flex;gap:10px;align-items:flex-start}
+  .lijst .ico{flex:none;width:20px;text-align:center}
+  .lijst .kopje{padding:8px 14px 4px;font-size:12px;font-weight:700;letter-spacing:.6px;text-transform:uppercase;color:var(--grijs);background:var(--papier);border-bottom:1px solid #e6e0d0}
+  .lijst .kopje.leeg{text-transform:none;letter-spacing:0;font-size:14px;font-weight:400;padding:12px 14px}
+  .lijst{max-height:60vh;overflow-y:auto}
   .lijst button:active,.lijst button:hover{background:#FFF4C2}
 
   .groot{display:flex;align-items:center;justify-content:center;gap:10px;width:100%;font:inherit;font-size:19px;font-weight:800;
@@ -721,7 +726,14 @@ svg.leaflet-image-layer.leaflet-interactive path {
   .geel{background:var(--geel)}
   .groen{background:var(--groen);color:#fff}
   .wit{background:var(--wit)}
-  #kaart{display:none;height:62vh;min-height:320px;margin-top:14px;border:var(--lijn);border-radius:14px;overflow:hidden;background:#EDE7D8}
+  .stap{margin-top:14px;padding:12px 14px 14px;border:var(--lijn);border-radius:14px;background:var(--papier)}
+  .stap .groot{margin-top:10px}
+  .stapkop{display:flex;align-items:center;gap:10px;font-size:17px}
+  .stap small{display:block;color:var(--grijs);font-size:14px;margin-top:4px;line-height:1.4}
+  .nr{display:inline-flex;align-items:center;justify-content:center;width:28px;height:28px;border-radius:50%;border:var(--lijn);background:var(--geel);font-weight:800;font-size:15px;flex:none}
+  .stap.pont{background:#E3EEFA}
+  .stap.pont .nr{background:#fff}
+  #kaart{position:relative;z-index:0;display:none;height:62vh;min-height:320px;margin-top:14px;border:var(--lijn);border-radius:14px;overflow:hidden;background:#EDE7D8}
   .leaflet-container{font-family:inherit}
   .speld{width:22px;height:22px;border-radius:50%;border:3px solid var(--inkt);box-sizing:border-box}
   .speld.start{background:var(--papier)}
@@ -776,7 +788,7 @@ svg.leaflet-image-layer.leaflet-interactive path {
       </div>
       <button class="groot wit" id="kaartknop" type="button">Bekijk route hier</button>
       <div id="kaart" aria-label="Kaart met de route"></div>
-      <a class="groot groen" id="open" href="#" target="_blank" rel="noopener">Open in Google Maps</a>
+      <div id="stappen"></div>
       <p class="tip"><b>Eén keer instellen in Google Maps:</b> tik op ⋯ → Route-opties → zet <b>Snelwegen vermijden</b> aan.</p>
       <p class="tip"><b>Fiets/bromfietspad naast de weg?</b> Google kent geen scooters en tekent dan de weg ernaast. Rij gewoon over het pad, dat hoort zo.</p>
     </div>
@@ -795,10 +807,11 @@ svg.leaflet-image-layer.leaflet-interactive path {
 </script>
 <script>
 const ROUTE_URL = "https://valhalla1.openstreetmap.de/route";
+const TRACE_URL = "https://valhalla1.openstreetmap.de/trace_attributes";
 const ZOEK_URL  = "https://photon.komoot.io/api/";
 
 const $ = id => document.getElementById(id);
-const plek = { van: null, naar: null };   // {lat, lon, naam} ; van=null betekent mijn locatie
+const plek = { van: null, naar: null };   // {lat, lon, naam} of {hier:true}; lege 'Van' betekent ook mijn locatie
 let mijnPlek = null;
 
 /* ---------- zoeken ---------- */
@@ -812,44 +825,98 @@ function omschrijf(p){
 
 async function zoek(tekst){
   const bias = mijnPlek || { lat: 52.1, lon: 5.2 };
-  const url = `${ZOEK_URL}?q=${encodeURIComponent(tekst)}&limit=5&lat=${bias.lat}&lon=${bias.lon}&bbox=3.2,50.7,7.3,53.6`;
+  const url = `${ZOEK_URL}?q=${encodeURIComponent(tekst)}&limit=10&lat=${bias.lat}&lon=${bias.lon}&zoom=14&location_bias_scale=0.1&bbox=3.2,50.7,7.3,53.6`;
   const r = await fetch(url);
   if (!r.ok) throw new Error("zoek");
   const j = await r.json();
-  return (j.features || []).map(f => {
+  let res = (j.features || []).map(f => {
     const o = omschrijf(f.properties || {});
     return { lat: f.geometry.coordinates[1], lon: f.geometry.coordinates[0], naam: o.titel, onder: o.onder };
   });
+  // dubbele weg, dichtstbij eerst
+  res = res.filter((x, i) => res.findIndex(y => y.naam === x.naam && y.onder === x.onder && afstand([x.lat, x.lon], [y.lat, y.lon]) < 0.05) === i);
+  if (mijnPlek) res.sort((a, b) => afstandTot(a) - afstandTot(b));
+  return res.slice(0, 6);
 }
+function afstandTot(p){ return mijnPlek ? afstand([mijnPlek.lat, mijnPlek.lon], [p.lat, p.lon]) : null; }
+function kmTekst(p){
+  const d = afstandTot(p);
+  if (d === null) return "";
+  return d < 1 ? `${Math.max(50, Math.round(d * 20) * 50)} m` : `${d < 10 ? d.toFixed(1).replace(".", ",") : Math.round(d)} km`;
+}
+
+/* ---------- eerder gekozen ---------- */
+const RECENT_SLEUTEL = "scooterroute-recent";
+function leesRecent(){
+  try { const l = JSON.parse(localStorage.getItem(RECENT_SLEUTEL) || "[]"); return Array.isArray(l) ? l : []; }
+  catch(e){ return []; }
+}
+function bewaarRecent(p){
+  if (!p || p.hier) return;
+  const schoon = { lat: p.lat, lon: p.lon, naam: p.naam, onder: p.onder || "" };
+  const lijst = [schoon, ...leesRecent().filter(x => !(x.naam === schoon.naam && x.onder === schoon.onder) && afstand([x.lat, x.lon], [schoon.lat, schoon.lon]) > 0.03)].slice(0, 8);
+  try { localStorage.setItem(RECENT_SLEUTEL, JSON.stringify(lijst)); } catch(e){}
+}
+
+const HIER = { hier: true, naam: "Mijn locatie" };
+function veldTekst(r){ return r.hier ? "Mijn locatie" : r.naam + (r.onder ? ", " + r.onder.split(", ").pop() : ""); }
 
 function koppelZoeken(soort){
   const inp = $(soort), lijst = $("lijst-" + soort);
   let timer, teller = 0;
+  lijst.addEventListener("mousedown", e => e.preventDefault());
+
+  function kies(r){
+    plek[soort] = r; inp.value = veldTekst(r); lijst.style.display = "none";
+    bewaarRecent(r); verbergUitkomst(); inp.blur();
+  }
+  function knop(r, icoon){
+    const b = document.createElement("button");
+    b.type = "button";
+    const afst = r.hier ? "" : kmTekst(r);
+    const onder = [r.onder, afst].filter(Boolean).join(" · ");
+    b.innerHTML = `<span class="ico">${icoon}</span><span>${esc(r.naam)}${onder ? `<small>${esc(onder)}</small>` : ""}</span>`;
+    b.onclick = () => kies(r);
+    return b;
+  }
+  function kopje(t){ const d = document.createElement("div"); d.className = "kopje"; d.textContent = t; return d; }
+  function toonLijst(recent, gevonden, metHier, leeg){
+    lijst.innerHTML = "";
+    if (metHier) lijst.appendChild(knop(HIER, "📍"));
+    if (recent.length){ lijst.appendChild(kopje("Eerder gekozen")); recent.forEach(r => lijst.appendChild(knop(r, "🕘"))); }
+    if (gevonden.length){ if (recent.length || metHier) lijst.appendChild(kopje("Gevonden, dichtstbij eerst")); gevonden.forEach(r => lijst.appendChild(knop(r, "•"))); }
+    if (leeg && !gevonden.length){ const d = kopje("Niks gevonden"); d.className = "kopje leeg"; lijst.appendChild(d); }
+    lijst.style.display = lijst.children.length ? "block" : "none";
+  }
+  function passend(t){
+    const q = t.toLowerCase();
+    return leesRecent().filter(r => !q || (r.naam + " " + r.onder).toLowerCase().includes(q));
+  }
+  function overzicht(){
+    const t = inp.value.trim();
+    const gekozen = plek[soort];
+    if (gekozen && inp.value === veldTekst(gekozen)) { toonLijst(leesRecent(), [], true); return; }
+    if (t.length < 3) toonLijst(passend(t), [], true);
+  }
+
+  inp.addEventListener("focus", () => { if (inp.value && plek[soort]) inp.select(); overzicht(); });
   inp.addEventListener("input", () => {
     plek[soort] = null;
     verbergUitkomst();
     clearTimeout(timer);
     const t = inp.value.trim();
-    if (t.length < 3){ lijst.style.display = "none"; return; }
+    if (t.length < 3){ teller++; overzicht(); return; }
+    toonLijst(passend(t).slice(0, 3), [], false);
     timer = setTimeout(async () => {
       const mijn = ++teller;
       try{
         const res = await zoek(t);
         if (mijn !== teller) return;
-        lijst.innerHTML = "";
-        if (!res.length){ lijst.innerHTML = '<button type="button" disabled>Niks gevonden</button>'; }
-        res.forEach(r => {
-          const b = document.createElement("button");
-          b.type = "button";
-          b.innerHTML = `${esc(r.naam)}${r.onder ? `<small>${esc(r.onder)}</small>` : ""}`;
-          b.onclick = () => { plek[soort] = r; inp.value = r.naam + (r.onder ? ", " + r.onder.split(", ").pop() : ""); lijst.style.display = "none"; };
-          lijst.appendChild(b);
-        });
-        lijst.style.display = "block";
-      }catch(e){ lijst.style.display = "none"; }
+        toonLijst(passend(t).slice(0, 3), res, false, true);
+      }catch(e){ if (mijn === teller) toonLijst(passend(t).slice(0, 3), [], false); }
     }, 300);
   });
-  inp.addEventListener("blur", () => setTimeout(() => lijst.style.display = "none", 200));
+  inp.addEventListener("blur", () => setTimeout(() => lijst.style.display = "none", 150));
 }
 function esc(s){ return String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c])); }
 
@@ -897,39 +964,117 @@ async function haalRoute(van, naar){
   return j.trip;
 }
 
-/* Kies tussenpunten op afslagen, verspreid over de route, zodat Google dezelfde weg volgt. */
-function kiesTussenpunten(trip, max = 8){
-  const vorm = trip.legs.flatMap(l => decodeer(l.shape));
+/* Haal per wegstuk op wat voor weg het is (gewone weg, bromfietspad, pont). */
+async function haalWegen(shape){
+  const vraag = {
+    encoded_polyline: shape, shape_match: "edge_walk", costing: "motor_scooter",
+    filters: { attributes: ["edge.use", "edge.road_class", "edge.length", "edge.begin_shape_index", "edge.end_shape_index", "shape"], action: "include" }
+  };
+  const r = await fetch(`${TRACE_URL}?json=${encodeURIComponent(JSON.stringify(vraag))}`);
+  const j = await r.json().catch(() => ({}));
+  if (!r.ok || !Array.isArray(j.edges) || !j.edges.length) throw new Error("wegen");
+  return j;
+}
+
+function kmLijst(vorm){
   const km = [0];
   for (let i = 1; i < vorm.length; i++) km.push(km[i-1] + afstand(vorm[i-1], vorm[i]));
-  const totaal = km[km.length - 1];
-  if (totaal < 1) return [];
-  const aantal = Math.min(max, Math.max(2, Math.ceil(totaal / 2)));
-  let kandidaten = [];
-  let offset = 0;
-  trip.legs.forEach(l => {
-    const n = decodeer(l.shape).length;
-    l.maneuvers.forEach(m => { if (m.begin_shape_index > 0 && m.begin_shape_index < n - 1) kandidaten.push(offset + m.begin_shape_index); });
-    offset += n;
-  });
-  if (kandidaten.length < aantal) kandidaten = vorm.map((_, i) => i).slice(1, -1);
-  const gekozen = new Set();
-  for (let i = 1; i <= aantal; i++){
-    const doel = totaal * i / (aantal + 1);
-    let beste = null, verschil = Infinity;
-    for (const k of kandidaten){
-      const v = Math.abs(km[k] - doel);
-      if (v < verschil){ verschil = v; beste = k; }
+  return km;
+}
+function indexOpKm(km, doel, van = 0, tot = km.length - 1){
+  let beste = van;
+  for (let i = van; i <= tot; i++) if (Math.abs(km[i] - doel) < Math.abs(km[beste] - doel)) beste = i;
+  return beste;
+}
+
+/* Zet de wegstukken om naar indexen in onze eigen routelijn. */
+function wegstukken(wegen, vorm){
+  if (!wegen) return null;
+  const tv = wegen.shape ? decodeer(wegen.shape) : vorm;
+  let map;
+  if (tv.length === vorm.length) map = i => i;
+  else {
+    const m = []; let p = 0;
+    for (const pt of tv){
+      let best = p, bd = Infinity;
+      for (let i = p; i < Math.min(vorm.length, p + 400); i++){ const d = afstand(pt, vorm[i]); if (d < bd){ bd = d; best = i; } }
+      m.push(best); p = best;
     }
-    if (beste !== null && km[beste] > 0.15 && totaal - km[beste] > 0.15) gekozen.add(beste);
+    map = i => m[Math.min(i, m.length - 1)];
   }
-  return [...gekozen].sort((a, b) => a - b).map(i => vorm[i]);
+  return wegen.edges.map(e => ({ use: e.use, klasse: e.road_class, b: map(e.begin_shape_index), e: map(e.end_shape_index) }));
+}
+
+/* Deel de route op in rijstukken en pontstukken. */
+function maakDelen(trip, vorm, stukken){
+  const km = kmLijst(vorm), laatsteI = vorm.length - 1;
+  const mans = trip.legs.flatMap(l => l.maneuvers || []);
+  let ponten = [];
+  if (stukken){
+    for (const s of stukken){
+      if (s.use !== "ferry" && s.use !== "rail-ferry") continue;
+      const vorige = ponten[ponten.length - 1];
+      if (vorige && s.b <= vorige.e + 1) vorige.e = Math.max(vorige.e, s.e);
+      else ponten.push({ b: s.b, e: s.e });
+    }
+  } else {
+    mans.forEach(m => { if (m.ferry || m.type === 28) ponten.push({ b: m.begin_shape_index, e: m.end_shape_index }); });
+  }
+  const delen = []; let pos = 0;
+  for (const p of ponten){
+    if (km[p.b] - km[pos] > 0.05) delen.push({ soort: "rij", b: pos, e: p.b });
+    const m = mans.find(x => (x.ferry || x.type === 28) && x.end_shape_index > p.b && x.begin_shape_index < p.e);
+    const naam = m && m.street_names && m.street_names[0] ? m.street_names[0] : "";
+    const tijd = m && m.time ? m.time : (km[p.e] - km[p.b]) / 10 * 3600;
+    delen.push({ soort: "pont", b: p.b, e: p.e, naam, tijd });
+    pos = p.e;
+  }
+  if (km[laatsteI] - km[pos] > 0.05 || !delen.length) delen.push({ soort: "rij", b: pos, e: laatsteI });
+  delen.forEach(d => { d.km = km[d.e] - km[d.b]; });
+  return delen;
+}
+
+/* Tussenpunten: weinig, en alleen midden op een gewone weg.
+   Nooit op een kruising, bromfietspad, busbaan of steiger: daar maakt Google lussen. */
+const GOEDE_WEG = new Set(["primary", "secondary", "tertiary", "unclassified", "residential", "trunk"]);
+function kiesTussenpunten(trip, vorm, deel, stukken, max = 8){
+  const km = kmLijst(vorm);
+  const lengte = km[deel.e] - km[deel.b];
+  if (lengte < 1.5) return [];
+  const aantal = Math.max(1, Math.min(max, Math.round(lengte / 2.5)));
+  const marge = 0.3;
+  let kandidaten = [];
+  if (stukken){
+    for (const s of stukken){
+      if (s.use !== "road" || !GOEDE_WEG.has(s.klasse)) continue;
+      if (s.b < deel.b || s.e > deel.e || km[s.e] - km[s.b] < 0.12) continue;
+      const mid = indexOpKm(km, (km[s.b] + km[s.e]) / 2, s.b, s.e);
+      if (mid > s.b && mid < s.e) kandidaten.push(mid);
+    }
+  } else {
+    for (const m of trip.legs.flatMap(l => l.maneuvers || [])){
+      if (m.ferry || m.type === 28) continue;
+      const b = m.begin_shape_index, e = m.end_shape_index;
+      if (b < deel.b || e > deel.e || km[e] - km[b] < 0.3) continue;
+      kandidaten.push(indexOpKm(km, (km[b] + km[e]) / 2, b, e));
+    }
+  }
+  kandidaten = kandidaten.filter(i => km[i] - km[deel.b] > marge && km[deel.e] - km[i] > marge);
+  const gekozen = [];
+  for (let i = 1; i <= aantal; i++){
+    const doel = km[deel.b] + lengte * i / (aantal + 1);
+    let beste = null;
+    for (const k of kandidaten) if (beste === null || Math.abs(km[k] - doel) < Math.abs(km[beste] - doel)) beste = k;
+    if (beste === null) break;
+    if (gekozen.every(g => Math.abs(km[g] - km[beste]) > 0.8)) gekozen.push(beste);
+  }
+  return gekozen.sort((a, b) => a - b).map(i => vorm[i]);
 }
 
 function googleLink(van, naar, tussen, vanIsHier){
   const p = x => `${(+x[0]).toFixed(6)},${(+x[1]).toFixed(6)}`;
-  const q = new URLSearchParams({ api: "1", destination: p([naar.lat, naar.lon]), travelmode: "driving" });
-  if (!vanIsHier) q.set("origin", p([van.lat, van.lon]));
+  const q = new URLSearchParams({ api: "1", destination: p(naar), travelmode: "driving" });
+  if (!vanIsHier) q.set("origin", p(van));
   if (tussen.length) q.set("waypoints", tussen.map(p).join("|"));
   else q.set("dir_action", "navigate");
   return "https://www.google.com/maps/dir/?" + q.toString();
@@ -956,6 +1101,10 @@ function tekenKaart(){
   laag = L.layerGroup([
     L.polyline(lijn, { color: "#1B1A17", weight: 9, opacity: 1 }),
     L.polyline(lijn, { color: "#F5C400", weight: 5, opacity: 1 }),
+    ...(laatste.delen || []).filter(d => d.soort === "pont").map(d =>
+      L.layerGroup([
+        L.polyline(lijn.slice(d.b, d.e + 1), { color: "#FFFFFF", weight: 6, opacity: 1 }),
+        L.polyline(lijn.slice(d.b, d.e + 1), { color: "#1F4AA8", weight: 5, opacity: 1, dashArray: "1 9", lineCap: "round" })])),
     L.marker(lijn[0], { icon: speld("start"), title: "Start" }),
     L.marker(lijn[lijn.length - 1], { icon: speld("eind"), title: "Bestemming" })
   ]).addTo(kaart);
@@ -970,31 +1119,68 @@ function wisselKaart(){
 }
 function tijdTekst(s){ const m = Math.round(s / 60); return m < 60 ? `${m} min` : `${Math.floor(m/60)} u ${m % 60}`; }
 
+function toonDelen(delen, trip, vorm, stukken, vanIsHier){
+  const doos = $("stappen"); doos.innerHTML = "";
+  const rij = delen.filter(d => d.soort === "rij");
+  let nr = 0;
+  delen.forEach((d, i) => {
+    if (d.soort === "pont"){
+      const div = document.createElement("div");
+      div.className = "stap pont";
+      div.innerHTML = `<div class="stapkop"><span class="nr">⛴</span><b>Pont${d.naam ? ": " + esc(d.naam) : ""}</b></div><small>Ongeveer ${tijdTekst(d.tijd)} varen. Google Maps doet niet mee, dit stuk neem je zelf.</small>`;
+      doos.appendChild(div);
+      return;
+    }
+    nr++;
+    const eerste = i === 0, laatste = i === delen.length - 1;
+    const tussen = kiesTussenpunten(trip, vorm, d, stukken);
+    const link = googleLink(vorm[d.b], vorm[d.e], tussen, eerste && vanIsHier);
+    const a = document.createElement("a");
+    a.className = "groot groen"; a.target = "_blank"; a.rel = "noopener"; a.href = link;
+    a.textContent = "Open in Google Maps";
+    if (rij.length === 1 && delen.length === 1){ doos.appendChild(a); return; }
+    const div = document.createElement("div");
+    div.className = "stap";
+    const titel = laatste ? "Naar je bestemming" : "Naar de pont";
+    div.innerHTML = `<div class="stapkop"><span class="nr">${nr}</span><b>${titel}</b></div><small>${d.km.toFixed(1).replace(".", ",")} km</small>`;
+    div.appendChild(a);
+    doos.appendChild(div);
+  });
+}
+
 async function plan(){
   toon(""); verbergUitkomst();
   const knop = $("plan");
   if (!plek.naar){ toon($("naar").value.trim() ? "Kies een plek uit de lijst onder ‘Naar’." : "Vul in waar je heen wilt."); return; }
-  if (!plek.van && $("van").value.trim()){ toon("Kies een plek uit de lijst onder ‘Van’, of maak het veld leeg voor je eigen locatie."); return; }
+  if (!plek.van && $("van").value.trim()){ toon("Kies een plek uit de lijst onder ‘Van’, of kies ‘Mijn locatie’."); return; }
+  const vanKeuze = plek.van || HIER, naarKeuze = plek.naar;
+  if (vanKeuze.hier && naarKeuze.hier){ toon("Van en Naar zijn nu allebei je eigen locatie. Kies bij één van de twee een andere plek."); return; }
   knop.disabled = true; knop.innerHTML = '<span class="draai"></span> Even rekenen…';
   try{
-    let van = plek.van, vanIsHier = false;
-    if (!van){
-      try { van = await haalLocatie(); vanIsHier = true; }
-      catch(e){ toon("Je locatie lukt niet. Zet locatie aan voor deze site, of vul ‘Van’ zelf in."); return; }
+    let van = vanKeuze, naar = naarKeuze;
+    const vanIsHier = !!van.hier;
+    if (van.hier || naar.hier){
+      let hier;
+      try { hier = await haalLocatie(); }
+      catch(e){ toon("Je locatie lukt niet. Zet locatie aan voor deze site, of kies zelf een plek."); return; }
+      if (van.hier) van = hier; else naar = hier;
     }
     let trip;
-    try { trip = await haalRoute(van, plek.naar); }
+    try { trip = await haalRoute(van, naar); }
     catch(e){
       toon(e.code === 442 || e.code === 171 || e.code === 170
         ? "Geen scooterroute gevonden. Kies een plek dichter bij een gewone weg."
         : "De route lukt nu niet. Check je internet en probeer het zo nog eens.");
       return;
     }
-    const tussen = kiesTussenpunten(trip);
+    const vorm = trip.legs.flatMap(l => decodeer(l.shape));
+    let stukken = null;
+    try { if (trip.legs.length === 1) stukken = wegstukken(await haalWegen(trip.legs[0].shape), vorm); } catch(e){ stukken = null; }
+    const delen = maakDelen(trip, vorm, stukken);
     $("km").textContent = trip.summary.length.toFixed(1).replace(".", ",");
     $("tijd").textContent = tijdTekst(trip.summary.time);
-    $("open").href = googleLink(van, plek.naar, tussen, vanIsHier);
-    laatste = { vorm: trip.legs.flatMap(l => decodeer(l.shape)), van, naar: plek.naar };
+    toonDelen(delen, trip, vorm, stukken, vanIsHier);
+    laatste = { vorm, delen, van, naar };
     $("uitkomst").style.display = "block";
     if (kaartOpen) tekenKaart();
   } finally {
@@ -1006,8 +1192,9 @@ koppelZoeken("van");
 koppelZoeken("naar");
 $("plan").onclick = plan;
 $("kaartknop").onclick = wisselKaart;
-$("hier").onclick = () => { $("van").value = ""; plek.van = null; verbergUitkomst(); $("van").placeholder = "Mijn locatie"; };
+$("hier").onclick = () => { $("van").value = "Mijn locatie"; plek.van = HIER; verbergUitkomst(); };
 $("wissel").onclick = () => {
+  if (!plek.van && !$("van").value.trim()){ plek.van = HIER; $("van").value = "Mijn locatie"; }
   if (!plek.van && !plek.naar) return;
   [plek.van, plek.naar] = [plek.naar, plek.van];
   const a = $("van").value; $("van").value = $("naar").value; $("naar").value = a;
@@ -1015,7 +1202,7 @@ $("wissel").onclick = () => {
 };
 haalLocatie().catch(() => {});
 
-if (typeof module !== "undefined") module.exports = { decodeer, kiesTussenpunten, googleLink, omschrijf, haalRoute, zoek };
+if (typeof module !== "undefined") module.exports = { leesRecent, bewaarRecent, decodeer, kiesTussenpunten, googleLink, omschrijf, haalRoute, zoek, maakDelen, wegstukken };
 </script>
 </body>
 </html>
